@@ -35,7 +35,6 @@ embeddings = SimpleOpenAIEmbeddings(model="text-embedding-3-large")
 # Init Pinecone
 pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
 index = pc.Index(os.getenv("PINECONE_INDEX_NAME"))
-
 # Attach vector store (no upsert now, just read)
 vector_store = PineconeVectorStore(
     index=index,

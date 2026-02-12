@@ -26,20 +26,25 @@ load_dotenv(str(env_path))
 MODEL_NAME = os.getenv("OPENAI_MODEL", "gpt-4.1")
 TEMPERATURE = float(os.getenv("OPENAI_TEMPERATURE", "0"))
 
-response_model = ChatOpenAI(model=MODEL_NAME, temperature=TEMPERATURE)
-grader_model = ChatOpenAI(model=MODEL_NAME, temperature=0)
+MAX_TOKENS = int(os.getenv("OPENAI_MAX_TOKENS", "180"))
+
+response_model = ChatOpenAI(model=MODEL_NAME, temperature=TEMPERATURE, max_tokens=MAX_TOKENS)
+grader_model   = ChatOpenAI(model=MODEL_NAME, temperature=0, max_tokens=80)
+scope_model    = ChatOpenAI(model=MODEL_NAME, temperature=0, max_tokens=80)
 
 # -----------------------------
 # 1) scope classifier gate
 # -----------------------------
 
-from langchain_core.messages import AIMessage
 
-scope_model = ChatOpenAI(model=MODEL_NAME, temperature=0)
 
-class ScopeCheck(BaseModel):
-    in_scope: Literal["yes", "no"] = Field(description="yes if question is about NeuralSurge.ai or about the company website/company/services. else no.")
-    reason: str = Field(description="Short reason in 1 sentence.")
+NEURAL_SURGE_SYSTEM = SystemMessage(content=(
+    "You are Neural Surge AI’s official website assistant.\n"
+    "You must never say you are ChatGPT, OpenAI, or mention model names.\n"
+    "If user asks who you are / where you're from, say you're Neural Surge AI’s website assistant for NeuralSurge.ai.\n"
+    "Be concise: 1–2 short sentences by default. Max 3 bullet points if needed.\n"
+    "If information is not available, say: \"I do not have information about that.\""
+))
 
 
 SCOPE_PROMPT = """
@@ -60,21 +65,74 @@ SCOPE_PROMPT = """
         - reason: short reason
         """
 
+# ------------------------------
+
+from langchain_core.messages import AIMessage
+
+scope_model = ChatOpenAI(model=MODEL_NAME, temperature=0)
+
+class ScopeCheck(BaseModel):
+    in_scope: Literal["yes", "no"] = Field(description="yes if question is about NeuralSurge.ai or about the company website/company/services. else no.")
+    reason: str = Field(description="Short reason in 1 sentence.")
+
+
+import re
+from langchain_core.messages import AIMessage
+
+GREETINGS = {"hi", "hello", "hey", "assalam o alaikum", "aoa", "salam"}
+IDENTITY_PATTERNS = [
+    r"\bwho are you\b",
+    r"\bwhat are you\b",
+    r"\bwhere are you from\b",
+    r"\bwhich country\b",
+    r"\byour country\b",
+]
+
+def _is_greeting(text: str) -> bool:
+    t = (text or "").strip().lower()
+    if t in GREETINGS:
+        return True
+    # also catch short greetings like "hi!" "hello."
+    return bool(re.fullmatch(r"(hi|hello|hey)[!. ]*", t))
+
+def _is_identity_question(text: str) -> bool:
+    t = (text or "").strip().lower()
+    return any(re.search(p, t) for p in IDENTITY_PATTERNS)
+
 def scope_gate(state: MessagesState) -> dict:
-    question = state["messages"][0].content
+    question = state["messages"][0].content or ""
+
+    # ✅ 1) Greetings should NOT be blocked
+    if _is_greeting(question):
+        return {
+            "messages": [
+                AIMessage(content="Hi! I’m Neural Surge AI’s website assistant. Ask me anything about NeuralSurge.ai — services, industries, careers, contact, or blog.")
+            ]
+        }
+
+    # ✅ 2) Identity / “where are you from” should NOT trigger ChatGPT identity
+    if _is_identity_question(question):
+        return {
+            "messages": [
+                AIMessage(content="I’m Neural Surge AI’s website assistant for NeuralSurge.ai. I can help with questions about our services, industries, careers, and contact information.")
+            ]
+        }
+
+    # ✅ 3) Otherwise: run your classifier as before
     prompt = SCOPE_PROMPT.format(question=question)
 
     verdict = scope_model.with_structured_output(ScopeCheck).invoke(
-        [{"role": "user", "content": prompt}]
+        [NEURAL_SURGE_SYSTEM, {"role": "user", "content": prompt}]
     )
 
     if verdict.in_scope == "yes":
         return {"messages": []}  # allow graph to continue
     else:
-        msg = AIMessage(
-            content="I can’t help with that — it’s beyond my scope. I only answer questions related to NeuralSurge.ai and its website."
-        )
-        return {"messages": [msg]}
+        return {
+            "messages": [
+                AIMessage(content="I can’t help with that — it’s beyond my scope. I only answer questions related to NeuralSurge.ai and its website.")
+            ]
+        }
 
 def route_scope(state: MessagesState) -> Literal["continue", "out"]:
     # if scope_gate added a refusal message, stop
@@ -124,11 +182,11 @@ retriever_tool = retrieve_neuralsurge_context
 # 3) Node: generate_query_or_respond
 # -----------------------------
 def generate_query_or_respond(state: MessagesState):
-    """
-    LLM decides whether to call retriever tool or answer directly.
-    """
-    response = response_model.bind_tools([retriever_tool]).invoke(state["messages"])
+    response = response_model.bind_tools([retriever_tool]).invoke(
+        [NEURAL_SURGE_SYSTEM] + state["messages"]
+    )
     return {"messages": [response]}
+
 
 
 # -----------------------------
@@ -178,34 +236,34 @@ REWRITE_PROMPT = (
 def rewrite_question(state: MessagesState):
     question = state["messages"][0].content
     prompt = REWRITE_PROMPT.format(question=question)
-    rewritten = response_model.invoke([{"role": "user", "content": prompt}])
+    rewritten = response_model.invoke([NEURAL_SURGE_SYSTEM, {"role": "user", "content": prompt}])
     return {"messages": [HumanMessage(content=rewritten.content)]}
+
 
 
 # -----------------------------
 # 6) Node: generate_answer
 # -----------------------------
 GENERATE_PROMPT = (
-    "You are the official Neural Surge AI website assistant.\n"
-    "Answer as Neural Surge AI (first-party voice). Do NOT mention 'context', 'website data', 'retrieved', 'Pinecone', or 'documents'.\n"
-    "If the answer is not present in the provided information, say: \"I do not have information about that.\" \n"
-    "Keep the answer concise (max 5 sentences). If useful, use bullet points.\n\n"
+    "Answer as Neural Surge AI (first-party voice).\n"
+    "Rules:\n"
+    "- 1–2 sentences ONLY. If needed, use up to 3 bullets.\n"
+    "- Never mention ChatGPT, OpenAI, model names, 'context', 'retrieved', Pinecone, or documents.\n"
+    "- If not present in the information, say: \"I do not have information about that.\"\n\n"
     "User question: {question}\n\n"
-    "Information from Neural Surge AI website:\n{context}"
+    "Information:\n{context}"
 )
-
-
 
 def generate_answer(state: MessagesState):
     question = state["messages"][0].content
     context = state["messages"][-1].content
     prompt = GENERATE_PROMPT.format(question=question, context=context)
+
     response = response_model.invoke([
-        SystemMessage(content="You are Neural Surge AI’s website assistant. Speak in a confident first-party company voice. Never say 'based on the website data' or mention sources."),
+        NEURAL_SURGE_SYSTEM,
         {"role": "user", "content": prompt},
     ])
     return {"messages": [response]}
-
 
 # -----------------------------
 # 7) Assemble Graph (same as tutorial)

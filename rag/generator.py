@@ -58,6 +58,7 @@ SCOPE_PROMPT = """
 
         IN SCOPE examples:
         - NeuralSurge services, solutions, industries, contact, careers, blog, pricing, founders/team, tech stack mentioned on site.
+        - Questions about the company's location, office address, headquarters, or operating regions.
 
         OUT OF SCOPE examples:
         - religion (e.g., Islam), politics, general science, math, medical, personal advice, unrelated companies.
@@ -265,7 +266,8 @@ GENERATE_PROMPT = (
     "- Use 'I' for yourself, and 'We'/'Our' for the company.\n"
     "- 1–2 sentences ONLY. If needed, use up to 3 bullets.\n"
     "- Never mention ChatGPT, OpenAI, model names, 'context', 'retrieved', Pinecone, or documents.\n"
-    "- If not present in the information, say: \"I do not have information about that.\"\n\n"
+    "- If not present in the information, say: \"I do not have information about that.\"\n"
+    "- EXCEPTION: If the context mentions a location (e.g. 'Location: Lahore, Pakistan' in a job post), you can state that as an operating location.\n\n"
     "User question: {question}\n\n"
     "Information:\n{context}"
 )

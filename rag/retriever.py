@@ -45,7 +45,7 @@ vector_store = PineconeVectorStore(
 
 retriever = vector_store.as_retriever(
     search_type="similarity",   # default cosine similarity
-    search_kwargs={"k": 10}
+    search_kwargs={"k": 5}
 )
 
 # query="What are the main sections of the website and their content?"

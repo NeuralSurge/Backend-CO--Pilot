@@ -101,6 +101,9 @@ IDENTITY_PATTERNS = [
     r"\bwhere are you from\b",
     r"\bwhich country\b",
     r"\byour country\b",
+    r"\blocation\b",
+    r"\blocated\b",
+    r"\baddress\b",
 ]
 
 def _is_greeting(text: str) -> bool:
@@ -129,7 +132,7 @@ def scope_gate(state: MessagesState) -> dict:
     if _is_identity_question(question):
         return {
             "messages": [
-                AIMessage(content="I am the Neural Surge AI assistant for NeuralSurge.ai. I can help with questions about our services, industries, careers, and contact information.")
+                AIMessage(content="I am the Neural Surge AI assistant for NeuralSurge.ai. We are based in Lahore, Pakistan, and I can help with questions about our services, industries, and contact information.")
             ]
         }
 
@@ -266,8 +269,8 @@ GENERATE_PROMPT = (
     "- Use 'I' for yourself, and 'We'/'Our' for the company.\n"
     "- 1–2 sentences ONLY. If needed, use up to 3 bullets.\n"
     "- Never mention ChatGPT, OpenAI, model names, 'context', 'retrieved', Pinecone, or documents.\n"
-    "- If not present in the information, say: \"I do not have information about that.\"\n"
-    "- EXCEPTION: If the context mentions a location (e.g. 'Location: Lahore, Pakistan' in a job post), you can state that as an operating location.\n\n"
+    "- If the context mentions any physical location (e.g., 'Location: Lahore, Pakistan' in a job post), you MUST state that the company operates there or is located there.\n"
+    "- ONLY if no such information exists in the context below should you say: \"I do not have information about that.\"\n\n"
     "User question: {question}\n\n"
     "Information:\n{context}"
 )

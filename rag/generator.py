@@ -31,6 +31,7 @@ MAX_TOKENS = int(os.getenv("OPENAI_MAX_TOKENS", "180"))
 response_model = ChatOpenAI(model=MODEL_NAME, temperature=TEMPERATURE, max_tokens=MAX_TOKENS)
 grader_model   = ChatOpenAI(model=MODEL_NAME, temperature=0, max_tokens=80)
 scope_model    = ChatOpenAI(model=MODEL_NAME, temperature=0, max_tokens=80)
+greating_model   = ChatOpenAI(model=MODEL_NAME, temperature=0, max_tokens=80)
 
 # -----------------------------
 # 1) scope classifier gate
@@ -64,7 +65,15 @@ SCOPE_PROMPT = """
         - in_scope: "yes" or "no"
         - reason: short reason
         """
-
+GREETINGS_PROMPT="""
+        You are the neural Surge Ai bot assistant 
+        helpful and friendly assistant for Neural Surge AI’s website. Your job is to greet users who say hi, hello, hey, or similar greetings.
+        If the user message is a greeting, respond with a friendly welcome message that also briefly explains
+        Here are the key points to include in your greeting:
+        if the user do simple question question answer like how are you etc give the answer else 
+        give the user Questions about other than the Neural Surge AI website, services, solutions, industries, contact, careers, blog, pricing, founders/team, tech stack mentioned on site.
+        Do not answer questions that are not related to Neural Surge AI, instead politely inform the user that you can only answer questions about Neural Surge AI and its website.
+        """
 # ------------------------------
 
 from langchain_core.messages import AIMessage
@@ -128,11 +137,12 @@ def scope_gate(state: MessagesState) -> dict:
     if verdict.in_scope == "yes":
         return {"messages": []}  # allow graph to continue
     else:
-        return {
-            "messages": [
-                AIMessage(content="I can’t help with that — it’s beyond my scope. I only answer questions related to NeuralSurge.ai and its website.")
+        return {"messages": [greating_model.invoke(
+            [   GREETINGS_PROMPT,
+                {"role": "user", "content": question}
             ]
-        }
+        )]}
+
 
 def route_scope(state: MessagesState) -> Literal["continue", "out"]:
     # if scope_gate added a refusal message, stop
